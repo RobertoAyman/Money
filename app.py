@@ -1,18 +1,56 @@
 import streamlit as st
-import pandas as pd
-from datetime import datetime
 import firebase_admin
-from firebase_admin import credentials
-from firebase_admin import firestore
+from firebase_admin import credentials, firestore
+from datetime import datetime, date
+import pandas as pd
 
-# إعداد الصفحة
-st.set_page_config(page_title="إدارة الماليات - الإصدار السحابي", layout="wide")
+# إعدادات الصفحة
+st.set_page_config(page_title="مدير المصاريف", page_icon="💰", layout="wide")
 
-# ربط الفايربيز بشكل آمن باستخدام أسرار Streamlit
+# تصميم CSS لتحسين الشكل (Modern UI)
+st.markdown("""
+    <style>
+    .stApp {
+        background-color: #f8f9fa;
+    }
+    .metric-card {
+        background-color: white;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        text-align: center;
+        border: 1px solid #e9ecef;
+    }
+    .metric-title {
+        color: #6c757d;
+        font-size: 16px;
+        font-weight: bold;
+        margin-bottom: 10px;
+    }
+    .metric-value {
+        font-size: 26px;
+        font-weight: bold;
+    }
+    .metric-value.green { color: #28a745; }
+    .metric-value.red { color: #dc3545; }
+    /* تحسين شكل أزرار الاختيار */
+    div[data-testid="stRadio"] > div {
+        display: flex;
+        flex-direction: row;
+        gap: 20px;
+        background-color: white;
+        padding: 10px 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# الاتصال بقاعدة بيانات Firebase
 @st.cache_resource
 def init_firebase():
     if not firebase_admin._apps:
-        # هنا بنجيب البيانات السرية من إعدادات Streamlit
+        # قراءة بيانات الاعتماد من إعدادات Streamlit
         cred_dict = dict(st.secrets["firebase"])
         cred = credentials.Certificate(cred_dict)
         firebase_admin.initialize_app(cred)
@@ -20,103 +58,152 @@ def init_firebase():
 
 db = init_firebase()
 
-st.title("💰 لوحة تحكم الإدارة المالية (Firebase)")
-st.markdown("تتبع دخلك، مصاريفك، أرباح المشاريع، وهدف التحويش.")
+# دوال مساعدة لجلب وحفظ البيانات
+def get_entities():
+    doc_ref = db.collection('settings').document('options')
+    doc = doc_ref.get()
+    if doc.exists:
+        return doc.to_dict().get('entities', [])
+    else:
+        doc_ref.set({'entities': ['أخرى']})
+        return ['أخرى']
 
-# --- القائمة الجانبية: إضافة معاملة ---
-st.sidebar.header("➕ إضافة معاملة جديدة")
-trans_type = st.sidebar.selectbox("النوع", ["دخل", "مصروف"])
-category = st.sidebar.selectbox("البند / المجال", ["راتب الشركة", "مونتاج فيديو", "تسويق", "مشروع/عميل", "أقساط", "مصاريف شخصية"])
-client_name = st.sidebar.text_input("اسم العميل أو الجهة (مثال: سرايا العرب)", value="")
-amount = st.sidebar.number_input("المبلغ (جنيه)", min_value=0.0, step=100.0)
-date = st.sidebar.date_input("التاريخ", datetime.now())
-notes = st.sidebar.text_area("ملاحظات (مثال: دفعة أولى، مصاريف إعلانات)")
+def add_entity(new_entity):
+    entities = get_entities()
+    if new_entity and new_entity not in entities:
+        entities.append(new_entity)
+        db.collection('settings').document('options').set({'entities': entities})
+        return True
+    return False
 
-if st.sidebar.button("حفظ المعاملة"):
-    # تجهيز البيانات للرفع على فايربيز
-    doc_ref = db.collection("transactions").document()
-    doc_ref.set({
-        "type": trans_type,
-        "category": category,
-        "client": client_name.strip(),
-        "amount": amount,
-        "date": str(date),
-        "notes": notes,
-        "timestamp": firestore.SERVER_TIMESTAMP
+def add_transaction(t_type, category, entity, amount, t_date, notes):
+    db.collection('transactions').add({
+        'type': t_type,
+        'category': category,
+        'entity': entity,
+        'amount': float(amount),
+        'date': t_date.strftime("%Y-%m-%d"),
+        'notes': notes,
+        'timestamp': firestore.SERVER_TIMESTAMP
     })
-    st.sidebar.success("✅ تم الحفظ في الفايربيز بنجاح!")
-    st.rerun()
 
-# --- جلب البيانات من فايربيز ---
-docs = db.collection("transactions").stream()
-data = []
-for doc in docs:
-    doc_data = doc.to_dict()
-    doc_data['id'] = doc.id
-    data.append(doc_data)
+def get_transactions():
+    docs = db.collection('transactions').order_by('date', direction=firestore.Query.DESCENDING).stream()
+    data = []
+    for doc in docs:
+        d = doc.to_dict()
+        d['id'] = doc.id
+        data.append(d)
+    return pd.DataFrame(data)
 
-df = pd.DataFrame(data)
+# --- القائمة الجانبية (Sidebar) ---
+st.sidebar.header("🏢 إضافة جهة جديدة")
+new_entity = st.sidebar.text_input("اكتب اسم الجهة:")
+if st.sidebar.button("حفظ الجهة", type="primary"):
+    if new_entity:
+        if add_entity(new_entity):
+            st.sidebar.success(f"تمت إضافة '{new_entity}' بنجاح!")
+            st.rerun()
+        else:
+            st.sidebar.warning("الجهة دي موجودة بالفعل أو الاسم فارغ.")
+
+st.sidebar.markdown("---")
+st.sidebar.info("الجهات اللي هتضيفها هنا هتظهرلك تلقائياً في قائمة 'الجهة' وأنت بتسجل المعاملات.")
+
+# --- واجهة عرض البيانات (Dashboard) ---
+st.title("💰 مدير المصاريف الشخصية")
+
+df = get_transactions()
+
+today = date.today()
+current_month = today.strftime("%Y-%m")
+today_str = today.strftime("%Y-%m-%d")
+
+total_saved = 0.0
+total_spent_month = 0.0
+spent_today = 0.0
+daily_limit = 100.0
 
 if not df.empty:
-    # --- الإحصائيات الرئيسية ---
-    st.header("📊 نظرة عامة")
-    total_income = df[df['type'] == 'دخل']['amount'].sum()
-    total_expense = df[df['type'] == 'مصروف']['amount'].sum()
-    net_balance = total_income - total_expense
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("إجمالي الدخل", f"{total_income:,.2f} ج.م")
-    col2.metric("إجمالي المصروفات والأقساط", f"{total_expense:,.2f} ج.م")
-    col3.metric("الصافي (في جيبك)", f"{net_balance:,.2f} ج.م")
-
-    st.divider()
-
-    # --- متابعة هدف التحويش (350,000) ---
-    st.subheader("🎯 متابعة هدف التحويش (350,000 جنيه حتى مايو 2027)")
-    target_amount = 350000.0
-    progress = min(max(net_balance / target_amount, 0.0), 1.0)
-    st.progress(progress)
-    st.write(f"المتبقي للوصول للهدف: **{target_amount - net_balance:,.2f}** جنيه")
-
-    st.divider()
-
-    # --- حساب أرباح المشاريع/العملاء (زي ما طلبت بالظبط) ---
-    st.subheader("💼 صافي أرباح العملاء والمشاريع")
-    st.write("هنا بيحسبلك كل عميل دخل منه كام، واتصرف عليه كام، والصافي بتاعك منه كام.")
+    # حسابات الشهر الحالي
+    df['month'] = df['date'].str[:7]
+    df_month = df[df['month'] == current_month]
     
-    # تصفية المعاملات اللي ليها اسم عميل
-    client_df = df[df['client'] != ''].copy()
-    if not client_df.empty:
-        # تجميع الدخل والمصروفات لكل عميل
-        client_summary = client_df.groupby(['client', 'type'])['amount'].sum().unstack(fill_value=0).reset_index()
-        
-        # التأكد من وجود عواميد الدخل والمصروف
-        if 'دخل' not in client_summary.columns: client_summary['دخل'] = 0
-        if 'مصروف' not in client_summary.columns: client_summary['مصروف'] = 0
-            
-        client_summary['صافي الربح'] = client_summary['دخل'] - client_summary['مصروف']
-        client_summary.rename(columns={'client': 'العميل / المشروع'}, inplace=True)
-        st.dataframe(client_summary, use_container_width=True)
-    else:
-        st.info("لا توجد بيانات مسجلة بأسماء عملاء حتى الآن.")
-
-    st.divider()
-
-    # --- سجل المعاملات بالكامل مع إمكانية الحذف ---
-    st.subheader("📋 السجل الكامل")
-    st.dataframe(df[['date', 'type', 'category', 'client', 'amount', 'notes']], use_container_width=True)
+    income_month = df_month[df_month['type'] == 'دخل']['amount'].sum()
+    total_spent_month = df_month[df_month['type'] == 'مصروف']['amount'].sum()
+    total_saved = income_month - total_spent_month
     
-    st.sidebar.divider()
-    st.sidebar.header("🗑️ حذف معاملة")
-    # عمل قائمة للمسح بشكل يسهل قراءته
-    delete_options = {f"{row['date']} - {row['type']} - {row['amount']}ج": row['id'] for index, row in df.iterrows()}
-    selected_to_delete = st.sidebar.selectbox("اختر المعاملة لحذفها", ["اختر..."] + list(delete_options.keys()))
-    
-    if selected_to_delete != "اختر..." and st.sidebar.button("حذف نهائي"):
-        doc_id = delete_options[selected_to_delete]
-        db.collection("transactions").document(doc_id).delete()
-        st.sidebar.success("تم الحذف بنجاح!")
+    # حسابات اليوم
+    df_today = df[(df['date'] == today_str) & (df['type'] == 'مصروف')]
+    spent_today = df_today['amount'].sum()
+
+remaining_today = daily_limit - spent_today
+
+# عرض الكروت العلوية
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-title">تحويشة الشهر ده 📈</div>
+            <div class="metric-value {'green' if total_saved >= 0 else 'red'}">{total_saved:,.2f} ج.م</div>
+        </div>
+    """, unsafe_allow_html=True)
+
+with col2:
+    st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-title">مصروفات الشهر ده 📉</div>
+            <div class="metric-value red">{total_spent_month:,.2f} ج.م</div>
+        </div>
+    """, unsafe_allow_html=True)
+
+with col3:
+    limit_color = 'green' if remaining_today >= 0 else 'red'
+    st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-title">متبقي من ليميت اليوم (100 ج) ⏱️</div>
+            <div class="metric-value {limit_color}">{remaining_today:,.2f} ج.م</div>
+        </div>
+    """, unsafe_allow_html=True)
+    if remaining_today < 0:
+        st.error(f"خلي بالك! إنت عديت الليميت اليومي بـ {abs(remaining_today):.2f} جنيه.")
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+# --- تسجيل معاملة جديدة ---
+st.subheader("➕ إضافة معاملة جديدة")
+
+t_type = st.radio("حدد نوع المعاملة:", ["مصروف", "دخل"], horizontal=True)
+
+col_a, col_b = st.columns(2)
+
+with col_a:
+    category = st.selectbox("البند:", ["مونتاج", "أكونتات", "فلوس خارجية", "راتب"])
+    amount = st.number_input("المبلغ (ج.م):", min_value=0.0, step=10.0)
+
+with col_b:
+    entities_list = get_entities()
+    entity = st.selectbox("الجهة:", entities_list)
+    t_date = st.date_input("التاريخ:", value=today)
+
+notes = st.text_input("ملاحظات (اختياري):")
+
+if st.button("💾 حفظ المعاملة", use_container_width=True, type="primary"):
+    if amount > 0:
+        add_transaction(t_type, category, entity, amount, t_date, notes)
+        st.success("تم الحفظ بنجاح! 🚀")
         st.rerun()
+    else:
+        st.warning("برجاء إدخال مبلغ أكبر من صفر.")
 
+st.markdown("---")
+
+# --- عرض المعاملات السابقة ---
+st.subheader("📊 آخر المعاملات")
+if not df.empty:
+    display_df = df[['date', 'type', 'category', 'entity', 'amount', 'notes']].copy()
+    display_df.columns = ['التاريخ', 'النوع', 'البند', 'الجهة', 'المبلغ', 'ملاحظات']
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
 else:
-    st.info("🚀 لا توجد أي معاملات مسجلة حتى الآن. أضف أول معاملة من القائمة الجانبية!")
+    st.info("لا توجد معاملات مسجلة حتى الآن.")

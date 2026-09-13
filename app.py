@@ -108,16 +108,28 @@ else:
 daily_profit = current_b * (0.18 / 365) 
 
 # --- القائمة الجانبية ---
-st.sidebar.header("💸 إيداع في رصيد التحويش")
-deposit_amount = st.sidebar.number_input("المبلغ اللي هتحوشه (ج.م):", min_value=0.0, step=500.0)
+st.sidebar.header("💸 إدارة رصيد التحويش")
+
+# 1. الإيداع السريع
+deposit_amount = st.sidebar.number_input("إيداع مبلغ جديد (ج.م):", min_value=0.0, step=500.0, key="deposit")
 if st.sidebar.button("إضافة الإيداع", type="primary"):
     if deposit_amount > 0:
         new_balance = current_b + deposit_amount
         update_balance(new_balance)
-        st.sidebar.success(f"عاش! رصيدك الكلي بقى {new_balance:,.0f} ج.م")
+        st.sidebar.success(f"تم الإيداع! رصيدك بقى {new_balance:,.0f} ج.م")
         st.rerun()
     else:
         st.sidebar.warning("اكتب مبلغ أكبر من صفر.")
+
+st.sidebar.markdown("---")
+
+# 2. تعديل الرصيد الكلي
+st.sidebar.markdown("**تعديل الرصيد الكلي يدوياً**")
+manual_balance = st.sidebar.number_input("إجمالي الفلوس اللي معاك دلوقتي (ج.م):", min_value=0.0, value=float(current_b), step=1000.0, key="manual")
+if st.sidebar.button("تحديث الرصيد الكلي"):
+    update_balance(manual_balance)
+    st.sidebar.success("تم تحديث الرصيد الكلي بنجاح!")
+    st.rerun()
 
 st.sidebar.markdown("---")
 st.sidebar.header("🏢 إضافة جهة جديدة")

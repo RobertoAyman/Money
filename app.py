@@ -4,39 +4,70 @@ from firebase_admin import credentials, firestore
 from datetime import datetime, date
 import pandas as pd
 
-st.set_page_config(page_title="مدير المصاريف", page_icon="💰", layout="wide")
+st.set_page_config(page_title="مدير المصاريف", page_icon="💳", layout="wide")
 
+# CSS بتصميم عصري (Dark Fintech Theme)
 st.markdown("""
     <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&display=swap');
+    
+    html, body, [class*="css"] {
+        font-family: 'Cairo', sans-serif !important;
+    }
+    
     .metric-card {
-        background-color: #2b2b2b;
-        padding: 20px;
-        border-radius: 10px;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        background: linear-gradient(145deg, #1a1a24, #252532);
+        padding: 25px 20px;
+        border-radius: 16px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
         text-align: center;
-        border: 1px solid #444;
-        margin-bottom: 15px;
+        border: 1px solid #333344;
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
+        margin-bottom: 20px;
     }
+    
+    .metric-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 15px 35px rgba(0, 0, 0, 0.5);
+        border-color: #444455;
+    }
+    
     .metric-title {
-        color: #cccccc;
-        font-size: 15px;
-        font-weight: bold;
-        margin-bottom: 10px;
+        color: #9ea3b0;
+        font-size: 14px;
+        font-weight: 700;
+        margin-bottom: 12px;
+        letter-spacing: 0.5px;
     }
+    
     .metric-value {
-        font-size: 22px;
-        font-weight: bold;
+        font-size: 26px;
+        font-weight: 900;
         color: #ffffff;
     }
-    .metric-value.green { color: #2ecc71; }
-    .metric-value.red { color: #e74c3c; }
-    .metric-value.blue { color: #3498db; }
-    .metric-value.orange { color: #f39c12; }
-    .metric-value.purple { color: #9b59b6; }
     
-    div.row-widget.stRadio > div {
+    .text-green { color: #00e676; }
+    .text-red { color: #ff1744; }
+    .text-blue { color: #00b0ff; }
+    .text-orange { color: #ff9100; }
+    .text-purple { color: #d500f9; }
+    
+    div[data-testid="stRadio"] > div {
+        background: #1a1a24;
+        padding: 10px 20px;
+        border-radius: 12px;
+        border: 1px solid #333344;
         display: flex;
         gap: 20px;
+    }
+    
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 20px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        font-size: 18px;
+        font-weight: bold;
+        padding-bottom: 10px;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -107,43 +138,38 @@ else:
 
 daily_profit = current_b * (0.18 / 365) 
 
-# --- القائمة الجانبية ---
-st.sidebar.header("💸 إدارة رصيد التحويش")
-
-# 1. الإيداع السريع
-deposit_amount = st.sidebar.number_input("إيداع مبلغ جديد (ج.م):", min_value=0.0, step=500.0, key="deposit")
-if st.sidebar.button("إضافة الإيداع", type="primary"):
-    if deposit_amount > 0:
-        new_balance = current_b + deposit_amount
-        update_balance(new_balance)
-        st.sidebar.success(f"تم الإيداع! رصيدك بقى {new_balance:,.0f} ج.م")
+# --- القائمة الجانبية (إدارة السيولة) ---
+with st.sidebar:
+    st.image("https://cdn-icons-png.flaticon.com/512/2830/2830284.png", width=80)
+    st.header("إدارة الأصول والجهات")
+    st.markdown("---")
+    
+    st.subheader("💸 إيداع سريع")
+    deposit_amount = st.number_input("المبلغ (ج.م):", min_value=0.0, step=500.0, key="deposit")
+    if st.button("تأكيد الإيداع", type="primary", use_container_width=True):
+        if deposit_amount > 0:
+            new_balance = current_b + deposit_amount
+            update_balance(new_balance)
+            st.success(f"تم! رصيدك: {new_balance:,.0f} ج.م")
+            st.rerun()
+            
+    st.markdown("---")
+    st.subheader("⚙️ تعديل الرصيد الكلي")
+    manual_balance = st.number_input("الرصيد الفعلي الحالي:", min_value=0.0, value=float(current_b), step=1000.0, key="manual")
+    if st.button("تحديث السجل", use_container_width=True):
+        update_balance(manual_balance)
+        st.success("تم التحديث!")
         st.rerun()
-    else:
-        st.sidebar.warning("اكتب مبلغ أكبر من صفر.")
 
-st.sidebar.markdown("---")
+    st.markdown("---")
+    st.subheader("🏢 إضافة جهة")
+    new_entity = st.text_input("اسم الجهة الجديدة:")
+    if st.button("إضافة", use_container_width=True):
+        if add_entity(new_entity):
+            st.success("تم الإضافة!")
+            st.rerun()
 
-# 2. تعديل الرصيد الكلي
-st.sidebar.markdown("**تعديل الرصيد الكلي يدوياً**")
-manual_balance = st.sidebar.number_input("إجمالي الفلوس اللي معاك دلوقتي (ج.م):", min_value=0.0, value=float(current_b), step=1000.0, key="manual")
-if st.sidebar.button("تحديث الرصيد الكلي"):
-    update_balance(manual_balance)
-    st.sidebar.success("تم تحديث الرصيد الكلي بنجاح!")
-    st.rerun()
-
-st.sidebar.markdown("---")
-st.sidebar.header("🏢 إضافة جهة جديدة")
-new_entity = st.sidebar.text_input("اكتب اسم الجهة:")
-if st.sidebar.button("حفظ الجهة"):
-    if add_entity(new_entity):
-        st.sidebar.success("تم الإضافة!")
-        st.rerun()
-    else:
-        st.sidebar.warning("موجودة أو فارغة.")
-
-# --- واجهة عرض البيانات ---
-st.title("💰 مدير المصاريف الشخصية")
-
+# --- جلب البيانات للحسابات ---
 df = get_transactions()
 current_month = today.strftime("%Y-%m")
 today_str = today.strftime("%Y-%m-%d")
@@ -164,75 +190,68 @@ if not df.empty:
 
 remaining_today = daily_limit - spent_today
 
-col1, col2, col3 = st.columns(3)
-with col1:
-    st.markdown(f'<div class="metric-card"><div class="metric-title">فائض الشهر 📈</div><div class="metric-value {"green" if total_saved >= 0 else "red"}">{total_saved:,.0f} ج</div></div>', unsafe_allow_html=True)
-with col2:
-    st.markdown(f'<div class="metric-card"><div class="metric-title">مصروفات الشهر 📉</div><div class="metric-value red">{total_spent_month:,.0f} ج</div></div>', unsafe_allow_html=True)
-with col3:
-    st.markdown(f'<div class="metric-card"><div class="metric-title">متبقي من ليميت اليوم ⏱️</div><div class="metric-value {"green" if remaining_today >= 0 else "red"}">{remaining_today:,.0f} ج</div></div>', unsafe_allow_html=True)
+# --- واجهة التطبيق الرئيسية (Tabs) ---
+st.title("محفظتي الذكية 🚀")
 
-st.markdown("---")
+tab1, tab2, tab3 = st.tabs(["📊 لوحة القيادة", "🎯 خطة الاستثمار", "📝 المعاملات"])
 
-st.subheader("🎯 خطة الاستثمار لـ 350 ألف (أبريل 2027)")
+# التبويب الأول: لوحة القيادة
+with tab1:
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown(f'<div class="metric-card"><div class="metric-title">فائض الشهر</div><div class="metric-value {"text-green" if total_saved >= 0 else "text-red"}">{total_saved:,.0f} ج</div></div>', unsafe_allow_html=True)
+    with col2:
+        st.markdown(f'<div class="metric-card"><div class="metric-title">مصروفات الشهر</div><div class="metric-value text-red">{total_spent_month:,.0f} ج</div></div>', unsafe_allow_html=True)
+    with col3:
+        st.markdown(f'<div class="metric-card"><div class="metric-title">متبقي من ليميت اليوم (100ج)</div><div class="metric-value {"text-green" if remaining_today >= 0 else "text-red"}">{remaining_today:,.0f} ج</div></div>', unsafe_allow_html=True)
+    
+    st.markdown("### سجل الحركة الأخير")
+    if not df.empty:
+        display_df = df.head(5)[['date', 'type', 'category', 'entity', 'amount']].copy()
+        display_df.columns = ['التاريخ', 'النوع', 'البند', 'الجهة', 'المبلغ']
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
 
-target_amount = 350000.0
-target_date_goal = date(2027, 4, 1)
-days_left = (target_date_goal - today).days
+# التبويب الثاني: الاستثمار
+with tab2:
+    target_amount = 350000.0
+    target_date_goal = date(2027, 4, 1)
+    days_left = (target_date_goal - today).days
+    remaining_goal = max(target_amount - current_b, 0)
+    daily_required = remaining_goal / days_left if days_left > 0 else 0
+    progress = min(current_b / target_amount, 1.0)
+    
+    st.progress(progress)
+    
+    g_col1, g_col2, g_col3 = st.columns(3)
+    with g_col1:
+        st.markdown(f'<div class="metric-card"><div class="metric-title">إجمالي الأصول 💼</div><div class="metric-value text-green">{current_b:,.0f} ج</div></div>', unsafe_allow_html=True)
+    with g_col2:
+        st.markdown(f'<div class="metric-card"><div class="metric-title">الأرباح اليومية 📈</div><div class="metric-value text-purple">+{daily_profit:,.1f} ج</div></div>', unsafe_allow_html=True)
+    with g_col3:
+        st.markdown(f'<div class="metric-card"><div class="metric-title">المطلوب يومياً 🎯</div><div class="metric-value text-orange">{daily_required:,.0f} ج</div></div>', unsafe_allow_html=True)
 
-remaining_goal = target_amount - current_b
-if remaining_goal < 0: remaining_goal = 0
+# التبويب الثالث: تسجيل المعاملات
+with tab3:
+    with st.container():
+        t_type_raw = st.radio("نوع الحركة:", ["🔴 سحب / مصروف", "🟢 إيداع / دخل"], horizontal=True)
+        t_type = "مصروف" if "سحب" in t_type_raw else "دخل"
 
-daily_required = remaining_goal / days_left if days_left > 0 else 0
-progress = (current_b / target_amount)
-if progress > 1.0: progress = 1.0
+        col_a, col_b = st.columns(2)
+        with col_a:
+            category = st.selectbox("التصنيف:", ["مونتاج", "أكونتات", "فلوس خارجية", "راتب"])
+            amount = st.number_input("القيمة (ج.م):", min_value=0.0, step=50.0)
 
-st.progress(progress)
+        with col_b:
+            entities_list = get_entities()
+            entity = st.selectbox("الطرف التاني:", entities_list)
+            t_date = st.date_input("التاريخ:", value=today)
 
-g_col1, g_col2, g_col3, g_col4, g_col5 = st.columns(5)
-with g_col1:
-    st.markdown(f'<div class="metric-card"><div class="metric-title">رصيدك الكلي</div><div class="metric-value green">{current_b:,.0f} ج</div></div>', unsafe_allow_html=True)
-with g_col2:
-    st.markdown(f'<div class="metric-card"><div class="metric-title">عائدك اليومي 📈</div><div class="metric-value purple">+{daily_profit:,.1f} ج</div></div>', unsafe_allow_html=True)
-with g_col3:
-    st.markdown(f'<div class="metric-card"><div class="metric-title">المتبقي للهدف</div><div class="metric-value orange">{remaining_goal:,.0f} ج</div></div>', unsafe_allow_html=True)
-with g_col4:
-    st.markdown(f'<div class="metric-card"><div class="metric-title">الأيام المتبقية</div><div class="metric-value blue">{days_left} يوم</div></div>', unsafe_allow_html=True)
-with g_col5:
-    st.markdown(f'<div class="metric-card"><div class="metric-title">المطلوب توفيره</div><div class="metric-value red">{daily_required:,.0f} ج/يوم</div></div>', unsafe_allow_html=True)
+        notes = st.text_input("ملاحظات إضافية:")
 
-st.markdown("---")
-
-st.subheader("➕ إضافة معاملة جديدة")
-
-t_type_raw = st.radio("حدد نوع المعاملة:", ["🔴 مصروف", "🟢 دخل"], horizontal=True)
-t_type = "مصروف" if "مصروف" in t_type_raw else "دخل"
-
-col_a, col_b = st.columns(2)
-with col_a:
-    category = st.selectbox("البند:", ["مونتاج", "أكونتات", "فلوس خارجية", "راتب"])
-    amount = st.number_input("المبلغ (ج.م):", min_value=0.0, step=10.0)
-
-with col_b:
-    entities_list = get_entities()
-    entity = st.selectbox("الجهة:", entities_list)
-    t_date = st.date_input("التاريخ:", value=today)
-
-notes = st.text_input("ملاحظات (اختياري):")
-
-if st.button("💾 حفظ المعاملة", use_container_width=True, type="primary"):
-    if amount > 0:
-        add_transaction(t_type, category, entity, amount, t_date, notes)
-        st.success("تم الحفظ بنجاح! 🚀")
-        st.rerun()
-    else:
-        st.warning("برجاء إدخال مبلغ أكبر من صفر.")
-
-st.markdown("---")
-st.subheader("📊 آخر المعاملات")
-if not df.empty:
-    display_df = df[['date', 'type', 'category', 'entity', 'amount', 'notes']].copy()
-    display_df.columns = ['التاريخ', 'النوع', 'البند', 'الجهة', 'المبلغ', 'ملاحظات']
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
-else:
-    st.info("لا توجد معاملات مسجلة حتى الآن.")
+        if st.button("تأكيد العملية 💾", use_container_width=True, type="primary"):
+            if amount > 0:
+                add_transaction(t_type, category, entity, amount, t_date, notes)
+                st.success("تم تسجيل الحركة بنجاح!")
+                st.rerun()
+            else:
+                st.warning("المبلغ لازم يكون أكبر من صفر.")

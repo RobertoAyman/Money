@@ -4,10 +4,8 @@ from firebase_admin import credentials, firestore
 from datetime import datetime, date
 import pandas as pd
 
-# إعدادات الصفحة
 st.set_page_config(page_title="مدير المصاريف", page_icon="💰", layout="wide")
 
-# تصميم CSS متوافق مع الوضع الليلي
 st.markdown("""
     <style>
     .metric-card {
@@ -21,12 +19,12 @@ st.markdown("""
     }
     .metric-title {
         color: #cccccc;
-        font-size: 16px;
+        font-size: 15px;
         font-weight: bold;
         margin-bottom: 10px;
     }
     .metric-value {
-        font-size: 26px;
+        font-size: 22px;
         font-weight: bold;
         color: #ffffff;
     }
@@ -34,6 +32,7 @@ st.markdown("""
     .metric-value.red { color: #e74c3c; }
     .metric-value.blue { color: #3498db; }
     .metric-value.orange { color: #f39c12; }
+    .metric-value.purple { color: #9b59b6; }
     
     div.row-widget.stRadio > div {
         display: flex;
@@ -52,7 +51,6 @@ def init_firebase():
 
 db = init_firebase()
 
-# دوال الجهات والمعاملات
 def get_entities():
     doc = db.collection('settings').document('options').get()
     return doc.to_dict().get('entities', ['أخرى']) if doc.exists else ['أخرى']
@@ -81,31 +79,52 @@ def get_transactions():
     data = [{'id': doc.id, **doc.to_dict()} for doc in docs]
     return pd.DataFrame(data)
 
-# دوال هدف التحويش
-def get_current_balance():
-    doc = db.collection('settings').document('goal').get()
-    return doc.to_dict().get('balance', 0.0) if doc.exists else 0.0
-
-def update_balance(new_balance):
-    db.collection('settings').document('goal').set({'balance': float(new_balance)}, merge=True)
-
 today = date.today()
 
-# --- القائمة الجانبية (Sidebar) ---
-st.sidebar.header("🎯 رصيد التحويش الفعلي")
-current_b = get_current_balance()
-new_b = st.sidebar.number_input("الفلوس اللي معاك دلوقتي (ج.م):", min_value=0.0, value=float(current_b), step=1000.0)
-if st.sidebar.button("تحديث الرصيد", type="primary"):
-    update_balance(new_b)
-    st.sidebar.success("تم تحديث رصيدك بنجاح!")
-    st.rerun()
+def get_balance_info():
+    doc = db.collection('settings').document('goal').get()
+    if doc.exists:
+        data = doc.to_dict()
+        return data.get('balance', 0.0), data.get('last_update', today.strftime("%Y-%m-%d"))
+    return 0.0, today.strftime("%Y-%m-%d")
+
+def update_balance(new_balance):
+    db.collection('settings').document('goal').set({
+        'balance': float(new_balance),
+        'last_update': today.strftime("%Y-%m-%d")
+    }, merge=True)
+
+base_b, last_update_str = get_balance_info()
+last_update_date = datetime.strptime(last_update_str, "%Y-%m-%d").date()
+days_passed = (today - last_update_date).days
+
+if days_passed > 0:
+    daily_rate = 0.18 / 365
+    current_b = base_b * ((1 + daily_rate) ** days_passed)
+    update_balance(current_b) 
+else:
+    current_b = base_b
+
+daily_profit = current_b * (0.18 / 365) 
+
+# --- القائمة الجانبية ---
+st.sidebar.header("💸 إيداع في رصيد التحويش")
+deposit_amount = st.sidebar.number_input("المبلغ اللي هتحوشه (ج.م):", min_value=0.0, step=500.0)
+if st.sidebar.button("إضافة الإيداع", type="primary"):
+    if deposit_amount > 0:
+        new_balance = current_b + deposit_amount
+        update_balance(new_balance)
+        st.sidebar.success(f"عاش! رصيدك الكلي بقى {new_balance:,.0f} ج.م")
+        st.rerun()
+    else:
+        st.sidebar.warning("اكتب مبلغ أكبر من صفر.")
 
 st.sidebar.markdown("---")
 st.sidebar.header("🏢 إضافة جهة جديدة")
 new_entity = st.sidebar.text_input("اكتب اسم الجهة:")
 if st.sidebar.button("حفظ الجهة"):
     if add_entity(new_entity):
-        st.sidebar.success(f"تم الإضافة!")
+        st.sidebar.success("تم الإضافة!")
         st.rerun()
     else:
         st.sidebar.warning("موجودة أو فارغة.")
@@ -133,22 +152,20 @@ if not df.empty:
 
 remaining_today = daily_limit - spent_today
 
-# ملخص الشهر واليوم
 col1, col2, col3 = st.columns(3)
 with col1:
-    st.markdown(f'<div class="metric-card"><div class="metric-title">فائض الشهر ده 📈</div><div class="metric-value {"green" if total_saved >= 0 else "red"}">{total_saved:,.0f} ج.م</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-card"><div class="metric-title">فائض الشهر 📈</div><div class="metric-value {"green" if total_saved >= 0 else "red"}">{total_saved:,.0f} ج</div></div>', unsafe_allow_html=True)
 with col2:
-    st.markdown(f'<div class="metric-card"><div class="metric-title">مصروفات الشهر ده 📉</div><div class="metric-value red">{total_spent_month:,.0f} ج.م</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-card"><div class="metric-title">مصروفات الشهر 📉</div><div class="metric-value red">{total_spent_month:,.0f} ج</div></div>', unsafe_allow_html=True)
 with col3:
-    st.markdown(f'<div class="metric-card"><div class="metric-title">متبقي من ليميت اليوم ⏱️</div><div class="metric-value {"green" if remaining_today >= 0 else "red"}">{remaining_today:,.0f} ج.م</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-card"><div class="metric-title">متبقي من ليميت اليوم ⏱️</div><div class="metric-value {"green" if remaining_today >= 0 else "red"}">{remaining_today:,.0f} ج</div></div>', unsafe_allow_html=True)
 
 st.markdown("---")
 
-# --- قسم هدف التحويش ---
-st.subheader("🎯 خطة تحويش 350 ألف (أبريل 2027)")
+st.subheader("🎯 خطة الاستثمار لـ 350 ألف (أبريل 2027)")
 
 target_amount = 350000.0
-target_date_goal = date(2027, 4, 1) # تاريخ الهدف
+target_date_goal = date(2027, 4, 1)
 days_left = (target_date_goal - today).days
 
 remaining_goal = target_amount - current_b
@@ -158,22 +175,22 @@ daily_required = remaining_goal / days_left if days_left > 0 else 0
 progress = (current_b / target_amount)
 if progress > 1.0: progress = 1.0
 
-# شريط التقدم
 st.progress(progress)
 
-g_col1, g_col2, g_col3, g_col4 = st.columns(4)
+g_col1, g_col2, g_col3, g_col4, g_col5 = st.columns(5)
 with g_col1:
-    st.markdown(f'<div class="metric-card"><div class="metric-title">معاك دلوقتي</div><div class="metric-value green">{current_b:,.0f} ج</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-card"><div class="metric-title">رصيدك الكلي</div><div class="metric-value green">{current_b:,.0f} ج</div></div>', unsafe_allow_html=True)
 with g_col2:
-    st.markdown(f'<div class="metric-card"><div class="metric-title">المتبقي للهدف</div><div class="metric-value orange">{remaining_goal:,.0f} ج</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-card"><div class="metric-title">عائدك اليومي 📈</div><div class="metric-value purple">+{daily_profit:,.1f} ج</div></div>', unsafe_allow_html=True)
 with g_col3:
-    st.markdown(f'<div class="metric-card"><div class="metric-title">الأيام المتبقية</div><div class="metric-value blue">{days_left} يوم</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-card"><div class="metric-title">المتبقي للهدف</div><div class="metric-value orange">{remaining_goal:,.0f} ج</div></div>', unsafe_allow_html=True)
 with g_col4:
-    st.markdown(f'<div class="metric-card"><div class="metric-title">المطلوب يومياً</div><div class="metric-value red">{daily_required:,.0f} ج/يوم</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-card"><div class="metric-title">الأيام المتبقية</div><div class="metric-value blue">{days_left} يوم</div></div>', unsafe_allow_html=True)
+with g_col5:
+    st.markdown(f'<div class="metric-card"><div class="metric-title">المطلوب توفيره</div><div class="metric-value red">{daily_required:,.0f} ج/يوم</div></div>', unsafe_allow_html=True)
 
 st.markdown("---")
 
-# --- تسجيل معاملة جديدة ---
 st.subheader("➕ إضافة معاملة جديدة")
 
 t_type_raw = st.radio("حدد نوع المعاملة:", ["🔴 مصروف", "🟢 دخل"], horizontal=True)

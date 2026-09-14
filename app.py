@@ -202,10 +202,9 @@ with st.sidebar:
 df = get_transactions()
 entities_data = get_entities()
 current_month = today.strftime("%Y-%m")
-today_str = today.strftime("%Y-%m-%d")
 
-total_saved, total_spent_month, spent_today = 0.0, 0.0, 0.0
-daily_limit = 100.0
+total_saved, total_spent_month, personal_spent_month = 0.0, 0.0, 0.0
+personal_monthly_limit = 2500.0
 
 if not df.empty:
     df['month'] = df['date'].str[:7]
@@ -213,12 +212,13 @@ if not df.empty:
     
     income_month = df_month[df_month['type'] == 'دخل']['amount'].sum()
     total_spent_month = df_month[df_month['type'] == 'مصروف']['amount'].sum()
-    total_saved = income_month - total_spent_month
     
-    df_today = df[(df['date'] == today_str) & (df['type'] == 'مصروف')]
-    spent_today = df_today['amount'].sum()
+    # حساب المصاريف الشخصية فقط
+    personal_spent_month = df_month[(df_month['type'] == 'مصروف') & (df_month['category'] == 'مصاريف شخصية')]['amount'].sum()
+    
+    total_saved = income_month - total_spent_month
 
-remaining_today = daily_limit - spent_today
+remaining_personal_limit = personal_monthly_limit - personal_spent_month
 
 # --- واجهة التطبيق الرئيسية ---
 st.title("محفظتي الذكية 🚀")
@@ -231,9 +231,9 @@ with tab1:
     with col1:
         st.markdown(f'<div class="metric-card"><div class="metric-title">فائض الشهر</div><div class="metric-value {"text-green" if total_saved >= 0 else "text-red"}">{total_saved:,.0f} ج</div></div>', unsafe_allow_html=True)
     with col2:
-        st.markdown(f'<div class="metric-card"><div class="metric-title">مصروفات الشهر</div><div class="metric-value text-red">{total_spent_month:,.0f} ج</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-card"><div class="metric-title">إجمالي مصروفات الشهر</div><div class="metric-value text-red">{total_spent_month:,.0f} ج</div></div>', unsafe_allow_html=True)
     with col3:
-        st.markdown(f'<div class="metric-card"><div class="metric-title">متبقي من ليميت اليوم (100ج)</div><div class="metric-value {"text-green" if remaining_today >= 0 else "text-red"}">{remaining_today:,.0f} ج</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-card"><div class="metric-title">متبقي ليميت شخصي (2500ج)</div><div class="metric-value {"text-green" if remaining_personal_limit >= 0 else "text-red"}">{remaining_personal_limit:,.0f} ج</div></div>', unsafe_allow_html=True)
 
 # التبويب الثاني: حسابات الأكونتات (الجهات)
 with tab2:
@@ -244,7 +244,6 @@ with tab2:
         for e_name, e_info in entities_data.items():
             e_limit = e_info.get('limit', 0)
             
-            # حساب الوارد (دخل) والمنصرف (مصروف) لهذه الجهة
             e_received = df[(df['entity'] == e_name) & (df['type'] == 'دخل')]['amount'].sum() if not df.empty else 0
             e_spent = df[(df['entity'] == e_name) & (df['type'] == 'مصروف')]['amount'].sum() if not df.empty else 0
             e_balance = e_received - e_spent

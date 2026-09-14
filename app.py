@@ -238,7 +238,7 @@ with tab3:
 
         col_a, col_b = st.columns(2)
         with col_a:
-            category = st.selectbox("التصنيف:", ["مونتاج", "أكونتات", "فلوس خارجية", "راتب"])
+            category = st.selectbox("التصنيف:", ["مونتاج", "أكونتات", "فلوس خارجية", "راتب", "مصاريف شخصية"])
             amount = st.number_input("القيمة (ج.م):", min_value=0.0, step=50.0)
 
         with col_b:

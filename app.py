@@ -46,6 +46,14 @@ st.markdown("""
         color: #ffffff;
     }
     
+    .entity-card {
+        background: #1e1e2d;
+        padding: 20px;
+        border-radius: 12px;
+        border-right: 5px solid #00b0ff;
+        margin-bottom: 15px;
+    }
+    
     .text-green { color: #00e676; }
     .text-red { color: #ff1744; }
     .text-blue { color: #00b0ff; }
@@ -82,15 +90,17 @@ def init_firebase():
 
 db = init_firebase()
 
+# --- دوال قاعدة البيانات ---
 def get_entities():
-    doc = db.collection('settings').document('options').get()
-    return doc.to_dict().get('entities', ['أخرى']) if doc.exists else ['أخرى']
+    docs = db.collection('entities').stream()
+    return {doc.id: doc.to_dict() for doc in docs}
 
-def add_entity(new_entity):
-    entities = get_entities()
-    if new_entity and new_entity not in entities:
-        entities.append(new_entity)
-        db.collection('settings').document('options').set({'entities': entities}, merge=True)
+def add_entity_with_limit(name, limit):
+    if name:
+        db.collection('entities').document(name).set({
+            'name': name,
+            'limit': float(limit)
+        })
         return True
     return False
 
@@ -110,6 +120,15 @@ def get_transactions():
     data = [{'id': doc.id, **doc.to_dict()} for doc in docs]
     return pd.DataFrame(data)
 
+def delete_all_data():
+    for doc in db.collection('transactions').stream():
+        db.collection('transactions').document(doc.id).delete()
+    for doc in db.collection('entities').stream():
+        db.collection('entities').document(doc.id).delete()
+    for doc in db.collection('settings').stream():
+        db.collection('settings').document(doc.id).delete()
+
+# --- دوال الاستثمار ---
 today = date.today()
 
 def get_balance_info():
@@ -138,13 +157,22 @@ else:
 
 daily_profit = current_b * (0.18 / 365) 
 
-# --- القائمة الجانبية (إدارة السيولة) ---
+# --- القائمة الجانبية ---
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/2830/2830284.png", width=80)
-    st.header("إدارة الأصول والجهات")
+    st.header("الإدارة والتحكم")
     st.markdown("---")
     
-    st.subheader("💸 إيداع سريع")
+    st.subheader("🏢 إضافة جهة / أكونت")
+    new_entity_name = st.text_input("اسم الجهة:")
+    new_entity_limit = st.number_input("ميزانية الجهة (الليميت):", min_value=0.0, step=1000.0)
+    if st.button("حفظ الجهة", use_container_width=True):
+        if add_entity_with_limit(new_entity_name, new_entity_limit):
+            st.success("تم الإضافة!")
+            st.rerun()
+
+    st.markdown("---")
+    st.subheader("💸 إيداع سريع للتحويش")
     deposit_amount = st.number_input("المبلغ (ج.م):", min_value=0.0, step=500.0, key="deposit")
     if st.button("تأكيد الإيداع", type="primary", use_container_width=True):
         if deposit_amount > 0:
@@ -154,23 +182,25 @@ with st.sidebar:
             st.rerun()
             
     st.markdown("---")
-    st.subheader("⚙️ تعديل الرصيد الكلي")
-    manual_balance = st.number_input("الرصيد الفعلي الحالي:", min_value=0.0, value=float(current_b), step=1000.0, key="manual")
+    st.subheader("⚙️ تعديل الرصيد الكلي يدوياً")
+    manual_balance = st.number_input("الرصيد الفعلي:", min_value=0.0, value=float(current_b), step=1000.0, key="manual")
     if st.button("تحديث السجل", use_container_width=True):
         update_balance(manual_balance)
         st.success("تم التحديث!")
         st.rerun()
 
     st.markdown("---")
-    st.subheader("🏢 إضافة جهة")
-    new_entity = st.text_input("اسم الجهة الجديدة:")
-    if st.button("إضافة", use_container_width=True):
-        if add_entity(new_entity):
-            st.success("تم الإضافة!")
+    st.subheader("🗑️ مسح جميع البيانات")
+    del_pass = st.text_input("كلمة المرور:", type="password")
+    if del_pass == "1234":
+        if st.button("فرمتة النظام ⚠️", type="primary", use_container_width=True):
+            delete_all_data()
+            st.success("تم مسح الداتابيز بالكامل، اعمل ريفرش للصفحة!")
             st.rerun()
 
-# --- جلب البيانات للحسابات ---
+# --- جلب البيانات الأساسية ---
 df = get_transactions()
+entities_data = get_entities()
 current_month = today.strftime("%Y-%m")
 today_str = today.strftime("%Y-%m-%d")
 
@@ -190,10 +220,10 @@ if not df.empty:
 
 remaining_today = daily_limit - spent_today
 
-# --- واجهة التطبيق الرئيسية (Tabs) ---
+# --- واجهة التطبيق الرئيسية ---
 st.title("محفظتي الذكية 🚀")
 
-tab1, tab2, tab3 = st.tabs(["📊 لوحة القيادة", "🎯 خطة الاستثمار", "📝 المعاملات"])
+tab1, tab2, tab3, tab4 = st.tabs(["📊 لوحة القيادة", "🏢 حسابات الأكونتات", "🎯 خطة الاستثمار", "📝 المعاملات"])
 
 # التبويب الأول: لوحة القيادة
 with tab1:
@@ -204,15 +234,35 @@ with tab1:
         st.markdown(f'<div class="metric-card"><div class="metric-title">مصروفات الشهر</div><div class="metric-value text-red">{total_spent_month:,.0f} ج</div></div>', unsafe_allow_html=True)
     with col3:
         st.markdown(f'<div class="metric-card"><div class="metric-title">متبقي من ليميت اليوم (100ج)</div><div class="metric-value {"text-green" if remaining_today >= 0 else "text-red"}">{remaining_today:,.0f} ج</div></div>', unsafe_allow_html=True)
-    
-    st.markdown("### سجل الحركة الأخير")
-    if not df.empty:
-        display_df = df.head(5)[['date', 'type', 'category', 'entity', 'amount']].copy()
-        display_df.columns = ['التاريخ', 'النوع', 'البند', 'الجهة', 'المبلغ']
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
 
-# التبويب الثاني: الاستثمار
+# التبويب الثاني: حسابات الأكونتات (الجهات)
 with tab2:
+    st.subheader("متابعة أرصدة وميزانيات الأكونتات")
+    if not entities_data:
+        st.info("لا توجد جهات مسجلة. قم بإضافة جهة من القائمة الجانبية.")
+    else:
+        for e_name, e_info in entities_data.items():
+            e_limit = e_info.get('limit', 0)
+            
+            # حساب الوارد (دخل) والمنصرف (مصروف) لهذه الجهة
+            e_received = df[(df['entity'] == e_name) & (df['type'] == 'دخل')]['amount'].sum() if not df.empty else 0
+            e_spent = df[(df['entity'] == e_name) & (df['type'] == 'مصروف')]['amount'].sum() if not df.empty else 0
+            e_balance = e_received - e_spent
+            
+            st.markdown(f"""
+            <div class="entity-card">
+                <h4 style="color: #ffffff; margin-bottom: 15px;">🏢 {e_name}</h4>
+                <div style="display: flex; justify-content: space-between;">
+                    <div><span style="color: #9ea3b0;">الميزانية (الليميت):</span> <strong class="text-blue">{e_limit:,.0f} ج</strong></div>
+                    <div><span style="color: #9ea3b0;">الوارد (الدفعات):</span> <strong class="text-green">{e_received:,.0f} ج</strong></div>
+                    <div><span style="color: #9ea3b0;">المنصرف:</span> <strong class="text-red">{e_spent:,.0f} ج</strong></div>
+                    <div><span style="color: #9ea3b0;">الرصيد في إيدك:</span> <strong class="{'text-green' if e_balance >= 0 else 'text-red'}" style="font-size: 18px;">{e_balance:,.0f} ج</strong></div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+# التبويب الثالث: الاستثمار
+with tab3:
     target_amount = 350000.0
     target_date_goal = date(2027, 4, 1)
     days_left = (target_date_goal - today).days
@@ -230,8 +280,8 @@ with tab2:
     with g_col3:
         st.markdown(f'<div class="metric-card"><div class="metric-title">المطلوب يومياً 🎯</div><div class="metric-value text-orange">{daily_required:,.0f} ج</div></div>', unsafe_allow_html=True)
 
-# التبويب الثالث: تسجيل المعاملات
-with tab3:
+# التبويب الرابع: تسجيل المعاملات
+with tab4:
     with st.container():
         t_type_raw = st.radio("نوع الحركة:", ["🔴 سحب / مصروف", "🟢 إيداع / دخل"], horizontal=True)
         t_type = "مصروف" if "سحب" in t_type_raw else "دخل"
@@ -242,8 +292,8 @@ with tab3:
             amount = st.number_input("القيمة (ج.م):", min_value=0.0, step=50.0)
 
         with col_b:
-            entities_list = get_entities()
-            entity = st.selectbox("الطرف التاني:", entities_list)
+            entities_list = ["أخرى"] + list(entities_data.keys())
+            entity = st.selectbox("الجهة / الأكونت:", entities_list)
             t_date = st.date_input("التاريخ:", value=today)
 
         notes = st.text_input("ملاحظات إضافية:")
@@ -255,3 +305,9 @@ with tab3:
                 st.rerun()
             else:
                 st.warning("المبلغ لازم يكون أكبر من صفر.")
+                
+    st.markdown("### سجل الحركة الأخير")
+    if not df.empty:
+        display_df = df[['date', 'type', 'category', 'entity', 'amount', 'notes']].copy()
+        display_df.columns = ['التاريخ', 'النوع', 'البند', 'الجهة', 'المبلغ', 'الملاحظات']
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
